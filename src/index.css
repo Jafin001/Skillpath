@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* macOS/iOS inspired Light Mode */
+    --background: 242 242 247; /* #F2F2F7 */
+    --surface: 255 255 255; /* #FFFFFF */
+    --surface-highlight: 229 229 234; /* #E5E5EA */
+    --primary: 0 122 255; /* Apple Blue #007AFF */
+    --primary-hover: 0 102 204;
+    --text: 28 28 30; /* #1C1C1E */
+    --text-muted: 142 142 147; /* #8E8E93 */
+    --border: 229 229 234; /* #E5E5EA */
+  }
+
+  .dark {
+    /* macOS/iOS inspired Dark Mode */
+    --background: 0 0 0; /* Pure black for that OLED look */
+    --surface: 28 28 30; /* #1C1C1E */
+    --surface-highlight: 44 44 46; /* #2C2C2E */
+    --primary: 10 132 255; /* Apple Blue Dark #0A84FF */
+    --primary-hover: 64 156 255;
+    --text: 242 242 247; /* #F2F2F7 */
+    --text-muted: 152 152 157; /* #98989D */
+    --border: 56 56 58; /* #38383A */
+  }
+
+  body {
+    @apply bg-background text-text antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-surface/70 backdrop-blur-[24px] backdrop-saturate-[180%] border border-black/5 dark:border-white/[0.08] shadow-sm;
+  }
+  
+  /* Adding a sleek custom scrollbar matching macOS style */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-textMuted/30 rounded-full;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-textMuted/50;
+  }
+}
