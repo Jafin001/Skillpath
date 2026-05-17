@@ -8,7 +8,7 @@ import { signInWithGoogle, signOut } from '../lib/auth';
 type SettingsTab = 'Appearance' | 'Account' | 'Notifications' | 'Privacy & Security';
 
 export function Settings() {
-  const { theme, setTheme, authUser, setAuthUser } = useStore();
+  const { theme, setTheme, authUser, setAuthUser, resetStore } = useStore();
   const [activeTab, setActiveTab] = useState<SettingsTab>('Appearance');
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -36,9 +36,11 @@ export function Settings() {
     setIsSigningOut(true);
     try {
       if (authUser?.isGuest) {
+        resetStore();
         setAuthUser(null);
       } else {
         await signOut();
+        resetStore();
         setAuthUser(null);
       }
     } catch (e: any) {

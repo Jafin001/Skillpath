@@ -113,6 +113,7 @@ export interface AppState {
   syncToCloud: () => Promise<void>;
   loadFromCloud: () => Promise<void>;
   restoreBackup: (backupStr: string) => void;
+  resetStore: () => void;
 }
 
 export const useStore = create<AppState>()(
@@ -228,6 +229,25 @@ export const useStore = create<AppState>()(
         get().syncToCloud();
       },
       setTheme: (theme) => set({ theme }),
+      resetStore: () => set(() => ({
+        user: {
+          name: '',
+          bio: 'Self-taught developer building skills one session at a time.',
+          learningGoals: ['Master React', 'Learn System Design', 'Build 5 side projects'],
+        },
+        skills: [],
+        sessions: [],
+        journal: [],
+        certificates: [],
+        coachMessages: [
+          {
+            id: 'welcome',
+            sender: 'ai',
+            text: 'Hi there! I am your SkillPath AI Learning Coach. 🧠\n\nI can analyze your logged skills, study sessions, and journal entries to give you personalized learning plans, productivity strategies, and feedback.\n\nTo unlock high-quality live coaching, enter your free Gemini API Key in the settings at any time! Or ask me a question now for quick advice.',
+            timestamp: new Date().toISOString(),
+          }
+        ]
+      })),
       restoreBackup: (backupStr) => {
         try {
           if (!backupStr) return;
@@ -254,13 +274,31 @@ export const useStore = create<AppState>()(
             journal: get().journal,
             certificates: get().certificates
           };
-          const { error } = await supabase.auth.updateUser({
+          
+          // 1. Try dedicated database table upsert
+          const { error: dbError } = await supabase
+            .from('user_sync')
+            .upsert({
+              user_id: authUser.id,
+              backup_data: backup,
+              updated_at: new Date().toISOString()
+            });
+
+          if (!dbError) {
+            console.log('Successfully backed up to dedicated database table!');
+            return;
+          }
+
+          console.warn('Database table sync failed, trying auth metadata fallback:', dbError.message);
+
+          // 2. Fallback to auth metadata
+          const { error: authError } = await supabase.auth.updateUser({
             data: { skillpath_backup: JSON.stringify(backup) }
           });
-          if (error) {
-            console.error('Supabase updateUser error:', error);
+          if (authError) {
+            console.error('Supabase updateUser error:', authError);
           } else {
-            console.log('Successfully backed up to cloud!');
+            console.log('Successfully backed up to cloud via auth metadata fallback!');
           }
         } catch (e) {
           console.error('Cloud sync failed:', e);
@@ -270,9 +308,32 @@ export const useStore = create<AppState>()(
         const { authUser } = get();
         if (!authUser || authUser.isGuest) return;
         try {
-          const { data: { user }, error } = await supabase.auth.getUser();
-          if (error) {
-            console.error('Supabase getUser error:', error);
+          // 1. Try dedicated database table select
+          const { data: dbData, error: dbError } = await supabase
+            .from('user_sync')
+            .select('backup_data')
+            .eq('user_id', authUser.id)
+            .maybeSingle();
+
+          if (!dbError && dbData?.backup_data) {
+            const backup = dbData.backup_data;
+            set({
+              user: backup.user || get().user,
+              skills: backup.skills || get().skills,
+              sessions: backup.sessions || get().sessions,
+              journal: backup.journal || get().journal,
+              certificates: backup.certificates || get().certificates,
+            });
+            console.log('Successfully loaded backup from dedicated database table!');
+            return;
+          }
+
+          console.warn('Database table load failed, trying auth metadata fallback:', dbError?.message);
+
+          // 2. Fallback to auth metadata
+          const { data: { user }, error: authError } = await supabase.auth.getUser();
+          if (authError) {
+            console.error('Supabase getUser error:', authError);
             return;
           }
           const backupStr = user?.user_metadata?.skillpath_backup;
@@ -285,7 +346,7 @@ export const useStore = create<AppState>()(
               journal: backup.journal || get().journal,
               certificates: backup.certificates || get().certificates,
             });
-            console.log('Successfully loaded backup from cloud!');
+            console.log('Successfully loaded backup from cloud via auth metadata fallback!');
           }
         } catch (e) {
           console.error('Cloud restore failed:', e);
