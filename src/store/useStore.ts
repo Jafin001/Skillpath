@@ -112,7 +112,7 @@ export interface AppState {
   setTheme: (theme: 'light' | 'dark') => void;
   syncToCloud: () => Promise<void>;
   loadFromCloud: () => Promise<void>;
-  restoreBackup: (backupStr: string) => void;
+  restoreBackup: (backupStr: string | any) => void;
   resetStore: () => void;
 }
 
@@ -248,16 +248,43 @@ export const useStore = create<AppState>()(
           }
         ]
       })),
-      restoreBackup: (backupStr) => {
+      restoreBackup: (backupInput) => {
         try {
-          if (!backupStr) return;
-          const backup = JSON.parse(backupStr);
+          if (!backupInput) return;
+          const backup = typeof backupInput === 'string' ? JSON.parse(backupInput) : backupInput;
+          
+          // Smart CRDT-style merge lists
+          const mergeLists = <T extends { id: string; lastUpdated?: string }>(local: T[], remote: T[]): T[] => {
+            const map = new Map<string, T>();
+            local.forEach(item => map.set(item.id, item));
+            remote.forEach(remoteItem => {
+              const localItem = map.get(remoteItem.id);
+              if (!localItem) {
+                map.set(remoteItem.id, remoteItem);
+              } else if (remoteItem.lastUpdated && localItem.lastUpdated) {
+                if (new Date(remoteItem.lastUpdated) > new Date(localItem.lastUpdated)) {
+                  map.set(remoteItem.id, remoteItem);
+                }
+              }
+            });
+            return Array.from(map.values());
+          };
+
+          const mergeById = <T extends { id: string }>(local: T[], remote: T[]): T[] => {
+            const map = new Map<string, T>();
+            local.forEach(item => map.set(item.id, item));
+            remote.forEach(item => map.set(item.id, item));
+            return Array.from(map.values());
+          };
+
+          const mergedSkills = mergeLists(get().skills, backup.skills || []);
+
           set({
-            user: backup.user || get().user,
-            skills: backup.skills || get().skills,
-            sessions: backup.sessions || get().sessions,
-            journal: backup.journal || get().journal,
-            certificates: backup.certificates || get().certificates,
+            user: { ...get().user, ...backup.user },
+            skills: mergedSkills,
+            sessions: mergeById(get().sessions, backup.sessions || []),
+            journal: mergeById(get().journal, backup.journal || []),
+            certificates: mergeById(get().certificates, backup.certificates || []),
           });
         } catch (e) {
           console.error('Backup restore failed:', e);
@@ -316,15 +343,8 @@ export const useStore = create<AppState>()(
             .maybeSingle();
 
           if (!dbError && dbData?.backup_data) {
-            const backup = dbData.backup_data;
-            set({
-              user: backup.user || get().user,
-              skills: backup.skills || get().skills,
-              sessions: backup.sessions || get().sessions,
-              journal: backup.journal || get().journal,
-              certificates: backup.certificates || get().certificates,
-            });
-            console.log('Successfully loaded backup from dedicated database table!');
+            get().restoreBackup(dbData.backup_data);
+            console.log('Successfully loaded and merged backup from dedicated database table!');
             return;
           }
 
@@ -338,15 +358,8 @@ export const useStore = create<AppState>()(
           }
           const backupStr = user?.user_metadata?.skillpath_backup;
           if (backupStr) {
-            const backup = JSON.parse(backupStr);
-            set({
-              user: backup.user || get().user,
-              skills: backup.skills || get().skills,
-              sessions: backup.sessions || get().sessions,
-              journal: backup.journal || get().journal,
-              certificates: backup.certificates || get().certificates,
-            });
-            console.log('Successfully loaded backup from cloud via auth metadata fallback!');
+            get().restoreBackup(backupStr);
+            console.log('Successfully loaded and merged backup from cloud via auth metadata fallback!');
           }
         } catch (e) {
           console.error('Cloud restore failed:', e);
