@@ -30,17 +30,19 @@ function App() {
 
   // Listen to Supabase auth — only needed for Google users
   useEffect(() => {
-    // If we already have a guest user from localStorage, skip loading
+    // If we already have a guest user from localStorage, skip showing the loading screen
     const stored = localStorage.getItem('skillpath-storage');
+    let startingAsGuest = false;
     if (stored) {
       const parsed = JSON.parse(stored);
       if (parsed?.state?.authUser?.isGuest) {
-        setAuthLoading(false);
-        return;
+        startingAsGuest = true;
       }
     }
 
-    setAuthLoading(true);
+    if (!startingAsGuest) {
+      setAuthLoading(true);
+    }
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       try {

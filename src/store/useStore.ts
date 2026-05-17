@@ -254,9 +254,14 @@ export const useStore = create<AppState>()(
             journal: get().journal,
             certificates: get().certificates
           };
-          await supabase.auth.updateUser({
+          const { error } = await supabase.auth.updateUser({
             data: { skillpath_backup: JSON.stringify(backup) }
           });
+          if (error) {
+            console.error('Supabase updateUser error:', error);
+          } else {
+            console.log('Successfully backed up to cloud!');
+          }
         } catch (e) {
           console.error('Cloud sync failed:', e);
         }
@@ -265,7 +270,11 @@ export const useStore = create<AppState>()(
         const { authUser } = get();
         if (!authUser || authUser.isGuest) return;
         try {
-          const { data: { user } } = await supabase.auth.getUser();
+          const { data: { user }, error } = await supabase.auth.getUser();
+          if (error) {
+            console.error('Supabase getUser error:', error);
+            return;
+          }
           const backupStr = user?.user_metadata?.skillpath_backup;
           if (backupStr) {
             const backup = JSON.parse(backupStr);
@@ -276,6 +285,7 @@ export const useStore = create<AppState>()(
               journal: backup.journal || get().journal,
               certificates: backup.certificates || get().certificates,
             });
+            console.log('Successfully loaded backup from cloud!');
           }
         } catch (e) {
           console.error('Cloud restore failed:', e);
