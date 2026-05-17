@@ -17,7 +17,7 @@ import type { AuthUser } from './lib/supabase';
 import { Sparkles } from 'lucide-react';
 
 function App() {
-  const { theme, authUser, setAuthUser, updateUser, setAuthLoading, isAuthLoading, loadFromCloud } = useStore();
+  const { theme, authUser, setAuthUser, updateUser, setAuthLoading, isAuthLoading, restoreBackup } = useStore();
 
   // Apply theme
   useEffect(() => {
@@ -42,38 +42,56 @@ function App() {
 
     setAuthLoading(true);
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user) {
-        const user = session.user;
-        const authUserData: AuthUser = {
-          id: user.id,
-          email: user.email,
-          name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
-          avatar: user.user_metadata?.avatar_url,
-          isGuest: false,
-        };
-        setAuthUser(authUserData);
-        updateUser({ name: authUserData.name });
-        await loadFromCloud();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      try {
+        if (session?.user) {
+          const user = session.user;
+          const authUserData: AuthUser = {
+            id: user.id,
+            email: user.email,
+            name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
+            avatar: user.user_metadata?.avatar_url,
+            isGuest: false,
+          };
+          setAuthUser(authUserData);
+          updateUser({ name: authUserData.name });
+
+          const backupStr = user.user_metadata?.skillpath_backup;
+          if (backupStr) {
+            restoreBackup(backupStr);
+          }
+        }
+      } catch (e) {
+        console.error('Session getSession restoration failed:', e);
+      } finally {
+        setAuthLoading(false);
       }
-      setAuthLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        const user = session.user;
-        const authUserData: AuthUser = {
-          id: user.id,
-          email: user.email,
-          name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
-          avatar: user.user_metadata?.avatar_url,
-          isGuest: false,
-        };
-        setAuthUser(authUserData);
-        updateUser({ name: authUserData.name });
-        await loadFromCloud();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      try {
+        if (session?.user) {
+          const user = session.user;
+          const authUserData: AuthUser = {
+            id: user.id,
+            email: user.email,
+            name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
+            avatar: user.user_metadata?.avatar_url,
+            isGuest: false,
+          };
+          setAuthUser(authUserData);
+          updateUser({ name: authUserData.name });
+
+          const backupStr = user.user_metadata?.skillpath_backup;
+          if (backupStr) {
+            restoreBackup(backupStr);
+          }
+        }
+      } catch (e) {
+        console.error('Session onAuthStateChange restoration failed:', e);
+      } finally {
+        setAuthLoading(false);
       }
-      setAuthLoading(false);
     });
 
     return () => subscription.unsubscribe();

@@ -112,6 +112,7 @@ export interface AppState {
   setTheme: (theme: 'light' | 'dark') => void;
   syncToCloud: () => Promise<void>;
   loadFromCloud: () => Promise<void>;
+  restoreBackup: (backupStr: string) => void;
 }
 
 export const useStore = create<AppState>()(
@@ -227,6 +228,21 @@ export const useStore = create<AppState>()(
         get().syncToCloud();
       },
       setTheme: (theme) => set({ theme }),
+      restoreBackup: (backupStr) => {
+        try {
+          if (!backupStr) return;
+          const backup = JSON.parse(backupStr);
+          set({
+            user: backup.user || get().user,
+            skills: backup.skills || get().skills,
+            sessions: backup.sessions || get().sessions,
+            journal: backup.journal || get().journal,
+            certificates: backup.certificates || get().certificates,
+          });
+        } catch (e) {
+          console.error('Backup restore failed:', e);
+        }
+      },
       syncToCloud: async () => {
         const { authUser } = get();
         if (!authUser || authUser.isGuest) return;
