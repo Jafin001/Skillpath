@@ -17,7 +17,7 @@ import type { AuthUser } from './lib/supabase';
 import { Sparkles } from 'lucide-react';
 
 function App() {
-  const { theme, authUser, setAuthUser, updateUser, setAuthLoading, isAuthLoading } = useStore();
+  const { theme, authUser, setAuthUser, updateUser, setAuthLoading, isAuthLoading, loadFromCloud } = useStore();
 
   // Apply theme
   useEffect(() => {
@@ -42,7 +42,7 @@ function App() {
 
     setAuthLoading(true);
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
         const user = session.user;
         const authUserData: AuthUser = {
@@ -54,11 +54,12 @@ function App() {
         };
         setAuthUser(authUserData);
         updateUser({ name: authUserData.name });
+        await loadFromCloud();
       }
       setAuthLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
         const user = session.user;
         const authUserData: AuthUser = {
@@ -70,6 +71,7 @@ function App() {
         };
         setAuthUser(authUserData);
         updateUser({ name: authUserData.name });
+        await loadFromCloud();
       }
       setAuthLoading(false);
     });

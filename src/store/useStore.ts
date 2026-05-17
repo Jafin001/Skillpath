@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AuthUser } from '../lib/supabase';
+import { supabase, type AuthUser } from '../lib/supabase';
 
 export interface Skill {
   id: string;
@@ -110,6 +110,8 @@ export interface AppState {
   addCoachMessage: (msg: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
   clearCoachMessages: () => void;
   setTheme: (theme: 'light' | 'dark') => void;
+  syncToCloud: () => Promise<void>;
+  loadFromCloud: () => Promise<void>;
 }
 
 export const useStore = create<AppState>()(
@@ -144,51 +146,125 @@ export const useStore = create<AppState>()(
       getStreak: () => computeStreak(get().sessions),
       getTotalMinutes: () => get().sessions.reduce((acc, s) => acc + s.duration, 0),
 
-      updateUser: (data) => set((state) => ({ user: { ...state.user, ...data } })),
+      updateUser: (data) => {
+        set((state) => ({ user: { ...state.user, ...data } }));
+        get().syncToCloud();
+      },
       setAuthUser: (authUser) => set({ authUser }),
       setAuthLoading: (loading) => set({ isAuthLoading: loading }),
-      addSkill: (skill) => set((state) => ({
-        skills: [...state.skills, { ...skill, id: crypto.randomUUID(), lastUpdated: new Date().toISOString() }]
-      })),
-      updateSkill: (id, data) => set((state) => ({
-        skills: state.skills.map(s => s.id === id ? { ...s, ...data, lastUpdated: new Date().toISOString() } : s)
-      })),
-      deleteSkill: (id) => set((state) => ({
-        skills: state.skills.filter(s => s.id !== id)
-      })),
-      addSession: (session) => set((state) => ({
-        sessions: [{ ...session, id: crypto.randomUUID() }, ...state.sessions]
-      })),
-      deleteSession: (id) => set((state) => ({
-        sessions: state.sessions.filter(s => s.id !== id)
-      })),
-      addJournalEntry: (entry) => set((state) => ({
-        journal: [{ ...entry, id: crypto.randomUUID(), date: new Date().toISOString() }, ...state.journal]
-      })),
-      addCertificate: (cert) => set((state) => ({
-        certificates: [{ ...cert, id: crypto.randomUUID() }, ...state.certificates]
-      })),
-      deleteCertificate: (id) => set((state) => ({
-        certificates: state.certificates.filter(c => c.id !== id)
-      })),
-      setGeminiApiKey: (key) => set({ geminiApiKey: key }),
-      addCoachMessage: (msg) => set((state) => ({
-        coachMessages: [
-          ...state.coachMessages,
-          { ...msg, id: crypto.randomUUID(), timestamp: new Date().toISOString() }
-        ]
-      })),
-      clearCoachMessages: () => set(() => ({
-        coachMessages: [
-          {
-            id: 'welcome',
-            sender: 'ai',
-            text: 'History cleared. Ask me any question or request a personalized study report!',
-            timestamp: new Date().toISOString(),
-          }
-        ]
-      })),
+      addSkill: (skill) => {
+        set((state) => ({
+          skills: [...state.skills, { ...skill, id: crypto.randomUUID(), lastUpdated: new Date().toISOString() }]
+        }));
+        get().syncToCloud();
+      },
+      updateSkill: (id, data) => {
+        set((state) => ({
+          skills: state.skills.map(s => s.id === id ? { ...s, ...data, lastUpdated: new Date().toISOString() } : s)
+        }));
+        get().syncToCloud();
+      },
+      deleteSkill: (id) => {
+        set((state) => ({
+          skills: state.skills.filter(s => s.id !== id)
+        }));
+        get().syncToCloud();
+      },
+      addSession: (session) => {
+        set((state) => ({
+          sessions: [{ ...session, id: crypto.randomUUID() }, ...state.sessions]
+        }));
+        get().syncToCloud();
+      },
+      deleteSession: (id) => {
+        set((state) => ({
+          sessions: state.sessions.filter(s => s.id !== id)
+        }));
+        get().syncToCloud();
+      },
+      addJournalEntry: (entry) => {
+        set((state) => ({
+          journal: [{ ...entry, id: crypto.randomUUID(), date: new Date().toISOString() }, ...state.journal]
+        }));
+        get().syncToCloud();
+      },
+      addCertificate: (cert) => {
+        set((state) => ({
+          certificates: [{ ...cert, id: crypto.randomUUID() }, ...state.certificates]
+        }));
+        get().syncToCloud();
+      },
+      deleteCertificate: (id) => {
+        set((state) => ({
+          certificates: state.certificates.filter(c => c.id !== id)
+        }));
+        get().syncToCloud();
+      },
+      setGeminiApiKey: (key) => {
+        set({ geminiApiKey: key });
+        get().syncToCloud();
+      },
+      addCoachMessage: (msg) => {
+        set((state) => ({
+          coachMessages: [
+            ...state.coachMessages,
+            { ...msg, id: crypto.randomUUID(), timestamp: new Date().toISOString() }
+          ]
+        }));
+        get().syncToCloud();
+      },
+      clearCoachMessages: () => {
+        set(() => ({
+          coachMessages: [
+            {
+              id: 'welcome',
+              sender: 'ai',
+              text: 'History cleared. Ask me any question or request a personalized study report!',
+              timestamp: new Date().toISOString(),
+            }
+          ]
+        }));
+        get().syncToCloud();
+      },
       setTheme: (theme) => set({ theme }),
+      syncToCloud: async () => {
+        const { authUser } = get();
+        if (!authUser || authUser.isGuest) return;
+        try {
+          const backup = {
+            user: get().user,
+            skills: get().skills,
+            sessions: get().sessions,
+            journal: get().journal,
+            certificates: get().certificates
+          };
+          await supabase.auth.updateUser({
+            data: { skillpath_backup: JSON.stringify(backup) }
+          });
+        } catch (e) {
+          console.error('Cloud sync failed:', e);
+        }
+      },
+      loadFromCloud: async () => {
+        const { authUser } = get();
+        if (!authUser || authUser.isGuest) return;
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          const backupStr = user?.user_metadata?.skillpath_backup;
+          if (backupStr) {
+            const backup = JSON.parse(backupStr);
+            set({
+              user: backup.user || get().user,
+              skills: backup.skills || get().skills,
+              sessions: backup.sessions || get().sessions,
+              journal: backup.journal || get().journal,
+              certificates: backup.certificates || get().certificates,
+            });
+          }
+        } catch (e) {
+          console.error('Cloud restore failed:', e);
+        }
+      },
     }),
     {
       name: 'skillpath-storage',
