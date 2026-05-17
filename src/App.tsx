@@ -66,6 +66,9 @@ function App() {
       } finally {
         setAuthLoading(false);
       }
+    }).catch(err => {
+      console.error('getSession network error:', err);
+      setAuthLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
