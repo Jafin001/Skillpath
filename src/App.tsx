@@ -17,7 +17,7 @@ import type { AuthUser } from './lib/supabase';
 import { Sparkles } from 'lucide-react';
 
 function App() {
-  const { theme, authUser, setAuthUser, updateUser, setAuthLoading, isAuthLoading, restoreBackup } = useStore();
+  const { theme, authUser, setAuthUser, updateUser, setAuthLoading, isAuthLoading, restoreBackup, loadFromCloud } = useStore();
 
   // Apply theme
   useEffect(() => {
@@ -60,6 +60,9 @@ function App() {
           if (backupStr) {
             restoreBackup(backupStr);
           }
+
+          // Trigger asynchronous background load from cloud to pull fresh updates!
+          loadFromCloud();
         }
       } catch (e) {
         console.error('Session getSession restoration failed:', e);
@@ -89,6 +92,9 @@ function App() {
           if (backupStr) {
             restoreBackup(backupStr);
           }
+
+          // Trigger background sync load from cloud!
+          loadFromCloud();
         }
       } catch (e) {
         console.error('Session onAuthStateChange restoration failed:', e);
