@@ -16,7 +16,7 @@ export function ParticleHero({ particleCount = 120 }: ParticleHeroProps) {
 
     let animationFrameId: number;
     let particles: Particle[] = [];
-    let mouse = { x: -1000, y: -1000 };
+    const mouse = { x: -1000, y: -1000 };
 
     class Particle {
       x: number;

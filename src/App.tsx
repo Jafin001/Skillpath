@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Layout } from './components/Layout';
 import { AuthPage } from './components/AuthPage';
 import { Dashboard } from './pages/Dashboard';
@@ -17,9 +17,20 @@ import type { AuthUser } from './lib/supabase';
 import { Sparkles } from 'lucide-react';
 
 function App() {
-  const { theme, authUser, setAuthUser, updateUser, setAuthLoading, isAuthLoading, restoreBackup, loadFromCloud } = useStore();
+  const theme = useStore((s) => s.theme);
+  const authUser = useStore((s) => s.authUser);
+  const isAuthLoading = useStore((s) => s.isAuthLoading);
+  const setAuthUser = useStore((s) => s.setAuthUser);
+  const setAuthLoading = useStore((s) => s.setAuthLoading);
+  const updateUser = useStore((s) => s.updateUser);
+  const restoreBackup = useStore((s) => s.restoreBackup);
+  const loadFromCloud = useStore((s) => s.loadFromCloud);
 
-  // Apply theme
+  // Keep a stable ref to loadFromCloud so the realtime channel doesn't recreate itself
+  const loadFromCloudRef = useRef(loadFromCloud);
+  useEffect(() => { loadFromCloudRef.current = loadFromCloud; }, [loadFromCloud]);
+
+  // Apply theme class to <html>
   useEffect(() => {
     if (theme === 'dark') {
       document.documentElement.classList.add('dark');
@@ -28,85 +39,107 @@ function App() {
     }
   }, [theme]);
 
-  // Listen to Supabase auth — only needed for Google users
+  // Supabase auth: handle session on mount and auth state changes
   useEffect(() => {
-    // If we already have a guest user from localStorage, skip showing the loading screen
-    const stored = localStorage.getItem('skillpath-storage');
-    let startingAsGuest = false;
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed?.state?.authUser?.isGuest) {
-        startingAsGuest = true;
-      }
-    }
-
-    if (!startingAsGuest) {
-      setAuthLoading(true);
-    }
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      try {
-        if (session?.user) {
-          const user = session.user;
-          const authUserData: AuthUser = {
-            id: user.id,
-            email: user.email,
-            name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
-            avatar: user.user_metadata?.avatar_url,
-            isGuest: false,
-          };
-          setAuthUser(authUserData);
-          updateUser({ name: authUserData.name });
-
-          const backupStr = user.user_metadata?.skillpath_backup;
-          if (backupStr) {
-            restoreBackup(backupStr);
-          }
-
-          // Trigger asynchronous background load from cloud to pull fresh updates!
-          loadFromCloud();
+    // If guest already in localStorage, don't show loading spinner
+    try {
+      const stored = localStorage.getItem('skillpath-storage');
+      if (stored) {
+        const parsed = JSON.parse(stored) as { state?: { authUser?: { isGuest?: boolean } } };
+        if (parsed?.state?.authUser?.isGuest) {
+          setAuthLoading(false);
+          return; // Guest user — skip Supabase session check entirely
         }
-      } catch (e) {
-        console.error('Session getSession restoration failed:', e);
-      } finally {
-        setAuthLoading(false);
       }
-    }).catch(err => {
-      console.error('getSession network error:', err);
+    } catch {
+      // ignore parse errors
+    }
+
+    setAuthLoading(true);
+
+    // Check for an existing session (e.g. returning user with valid token)
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error('[SkillPath] getSession error:', error.message);
+        setAuthLoading(false);
+        return;
+      }
+
+      if (session?.user) {
+        const user = session.user;
+        const authUserData: AuthUser = {
+          id: user.id,
+          email: user.email,
+          name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
+          avatar: user.user_metadata?.avatar_url,
+          isGuest: false,
+        };
+        setAuthUser(authUserData);
+        updateUser({ name: authUserData.name });
+
+        // Try quick restore from token metadata, then background-load the full cloud state
+        const backupStr = user.user_metadata?.skillpath_backup as string | undefined;
+        if (backupStr) restoreBackup(backupStr);
+
+        loadFromCloudRef.current();
+      }
+
+      setAuthLoading(false);
+    }).catch((err: Error) => {
+      console.error('[SkillPath] getSession network error:', err.message);
       setAuthLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      try {
-        if (session?.user) {
-          const user = session.user;
-          const authUserData: AuthUser = {
-            id: user.id,
-            email: user.email,
-            name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
-            avatar: user.user_metadata?.avatar_url,
-            isGuest: false,
-          };
-          setAuthUser(authUserData);
-          updateUser({ name: authUserData.name });
+    // Listen for sign-in / sign-out / token refresh events
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        const user = session.user;
+        const authUserData: AuthUser = {
+          id: user.id,
+          email: user.email,
+          name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
+          avatar: user.user_metadata?.avatar_url,
+          isGuest: false,
+        };
+        setAuthUser(authUserData);
+        updateUser({ name: authUserData.name });
 
-          const backupStr = user.user_metadata?.skillpath_backup;
-          if (backupStr) {
-            restoreBackup(backupStr);
-          }
+        const backupStr = user.user_metadata?.skillpath_backup as string | undefined;
+        if (backupStr) restoreBackup(backupStr);
 
-          // Trigger background sync load from cloud!
-          loadFromCloud();
-        }
-      } catch (e) {
-        console.error('Session onAuthStateChange restoration failed:', e);
-      } finally {
-        setAuthLoading(false);
+        loadFromCloudRef.current();
+      } else if (event === 'SIGNED_OUT') {
+        setAuthUser(null);
       }
+
+      setAuthLoading(false);
     });
 
     return () => subscription.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Real-time cross-device sync: re-subscribe only when the logged-in user changes
+  useEffect(() => {
+    if (!authUser?.id || authUser.isGuest) return;
+
+    const userId = authUser.id;
+    const channel = supabase
+      .channel(`user_sync_${userId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'user_sync', filter: `user_id=eq.${userId}` },
+        () => {
+          // Another device pushed an update — pull it in
+          loadFromCloudRef.current();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [authUser?.id]); // stable: only recreate when user ID changes
 
   if (isAuthLoading) {
     return (
