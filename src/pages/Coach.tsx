@@ -1,29 +1,17 @@
 import { useState, useRef, useEffect } from 'react';
-
 import { Brain, Send, Trash2, User } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { cn } from '../lib/utils';
 
-// Premium Google Gemini API key provided by the user
-// Split-constructed to completely bypass automated sweepers and preserve key integrity
-const GEMINI_API_KEY = 'AIzaSyCYOG' + 'acMFWHO6kt' + 'Ml1cuNyOVW' + '25gey1Aa0';
+// Backend proxy URL — keeps the Gemini API key off the browser
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 export function Coach() {
-  const { 
-    skills, 
-    sessions, 
-    journal, 
-    coachMessages, 
-    addCoachMessage, 
-    clearCoachMessages,
-    user 
-  } = useStore();
-
+  const { skills, sessions, journal, coachMessages, addCoachMessage, clearCoachMessages, user } = useStore();
   const [inputMsg, setInputMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto scroll to bottom
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [coachMessages, isLoading]);
@@ -52,38 +40,27 @@ ${journalSummary || 'No reflections logged yet.'}
 Provide answers with excellent structure, clear bullet points, motivational tone, and highlighted emojis. Always focus on helping them optimize their habits. Keep answers highly rich in insights.`;
   };
 
-  const callAI = async (userPrompt: string) => {
+  const callAI = async (userPrompt: string): Promise<string> => {
     try {
-      const systemPrompt = getSystemPrompt();
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [
-              {
-                role: 'user',
-                parts: [{ text: `${systemPrompt}\n\nUser request: ${userPrompt}` }],
-              },
-            ],
-          }),
-        }
-      );
+      const fullPrompt = `${getSystemPrompt()}\n\nUser request: ${userPrompt}`;
 
-      if (!response.ok) {
-        throw new Error('Gemini API call failed');
+      const res = await fetch(`${API_BASE}/api/coach`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: fullPrompt }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json() as { error?: string };
+        throw new Error(err.error || 'Server error');
       }
 
-      const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) throw new Error('Empty response');
-      return text;
-    } catch (err: any) {
-      console.error(err);
-      return `❌ **SkillPath Coach Connection Error:**
-
-I was unable to reach the Google Gemini API. Please ensure your network is connected and active.`;
+      const data = await res.json() as { text?: string };
+      if (!data.text) throw new Error('Empty response from server');
+      return data.text;
+    } catch (err) {
+      console.error('[Coach]', err);
+      return `❌ **SkillPath Coach Connection Error:**\n\nUnable to reach the AI backend. Make sure the backend server is running.`;
     }
   };
 
@@ -91,25 +68,19 @@ I was unable to reach the Google Gemini API. Please ensure your network is conne
     e.preventDefault();
     const prompt = inputMsg.trim();
     if (!prompt) return;
-
     setInputMsg('');
     addCoachMessage({ sender: 'user', text: prompt });
     setIsLoading(true);
-
     const response = await callAI(prompt);
-    
     addCoachMessage({ sender: 'ai', text: response });
     setIsLoading(false);
   };
 
   const handleGenerateReport = async () => {
-    const prompt = "Can you analyze my current progress, skills and session history, and generate a comprehensive Weekly Learning Audit & Personalized Growth Report?";
-    setInputMsg('');
+    const prompt = 'Can you analyze my current progress, skills and session history, and generate a comprehensive Weekly Learning Audit & Personalized Growth Report?';
     addCoachMessage({ sender: 'user', text: prompt });
     setIsLoading(true);
-
     const response = await callAI(prompt);
-
     addCoachMessage({ sender: 'ai', text: response });
     setIsLoading(false);
   };
@@ -125,7 +96,6 @@ I was unable to reach the Google Gemini API. Please ensure your network is conne
           </h1>
           <p className="text-textMuted text-sm font-medium">Personalized strategies, daily schedules, and progress audits powered by Google Gemini.</p>
         </div>
-        
         <div className="flex gap-2">
           <button
             onClick={handleGenerateReport}
@@ -152,35 +122,19 @@ I was unable to reach the Google Gemini API. Please ensure your network is conne
             <div
               key={msg.id}
               className={cn(
-                "flex gap-3 max-w-[85%] sm:max-w-[75%]",
-                msg.sender === 'user' ? "ml-auto flex-row-reverse" : "mr-auto"
+                'flex gap-3 max-w-[85%] sm:max-w-[75%]',
+                msg.sender === 'user' ? 'ml-auto flex-row-reverse' : 'mr-auto'
               )}
             >
-              {/* Avatar */}
-              <div
-                className={cn(
-                  "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-sm",
-                  msg.sender === 'user' ? "bg-primary/20 text-primary" : "bg-purple-500/20 text-purple-400"
-                )}
-              >
+              <div className={cn('w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-sm', msg.sender === 'user' ? 'bg-primary/20 text-primary' : 'bg-purple-500/20 text-purple-400')}>
                 {msg.sender === 'user' ? <User size={14} /> : <Brain size={14} />}
               </div>
-
-              {/* Message bubble */}
-              <div
-                className={cn(
-                  "rounded-2xl p-4 text-sm leading-relaxed whitespace-pre-wrap shadow-sm",
-                  msg.sender === 'user'
-                    ? "bg-primary text-white"
-                    : "bg-surface border border-border text-text"
-                )}
-              >
+              <div className={cn('rounded-2xl p-4 text-sm leading-relaxed whitespace-pre-wrap shadow-sm', msg.sender === 'user' ? 'bg-primary text-white' : 'bg-surface border border-border text-text')}>
                 {msg.text}
               </div>
             </div>
           ))}
 
-          {/* Loading bubble */}
           {isLoading && (
             <div className="flex gap-3 mr-auto max-w-[75%]">
               <div className="w-8 h-8 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center flex-shrink-0">
@@ -196,11 +150,10 @@ I was unable to reach the Google Gemini API. Please ensure your network is conne
               </div>
             </div>
           )}
-          
           <div ref={chatEndRef} />
         </div>
 
-        {/* Input Form */}
+        {/* Input */}
         <form onSubmit={handleSend} className="p-4 bg-surfaceHighlight/20 border-t border-border/50 flex gap-2 flex-shrink-0">
           <input
             type="text"
