@@ -25,6 +25,8 @@ export type { Skill, Session, JournalEntry, Certificate, UserProfile, ChatMessag
 export type AppState = AuthSlice & DataSlice & CoachSlice & SyncSlice & {
   theme: 'light' | 'dark';
   setTheme: (theme: 'light' | 'dark') => void;
+  /** True after Zustand persist has restored localStorage into memory */
+  hasHydrated: boolean;
 };
 
 export const useStore = create<AppState>()(
@@ -37,6 +39,7 @@ export const useStore = create<AppState>()(
 
       theme: 'dark' as const,
       setTheme: (theme) => a[0]({ theme }),
+      hasHydrated: false,
     }),
     {
       name: 'skillpath-storage',
@@ -54,6 +57,17 @@ export const useStore = create<AppState>()(
         lastChangedAt: state.lastChangedAt,
         // coachMessages intentionally NOT persisted (device-local UI state)
       }),
+      onRehydrateStorage: () => (_state, error) => {
+        if (error) {
+          console.error('[SkillPath] localStorage rehydration failed:', error);
+        } else {
+          console.log('[SkillPath] localStorage rehydration complete.');
+        }
+      },
     }
   )
 );
+
+useStore.persist.onFinishHydration(() => {
+  useStore.setState({ hasHydrated: true });
+});

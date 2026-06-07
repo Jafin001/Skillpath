@@ -58,13 +58,20 @@ export const createDataSlice: StateCreator<AppState, [], [], DataSlice> = (set, 
   journal: [],
   certificates: [],
   geminiApiKey: '',
-  lastChangedAt: new Date().toISOString(),
+  // null until first user edit or rehydration — avoids false "local is newer" on page load
+  lastChangedAt: null,
   lastSyncedAt: null,
 
   getStreak: () => computeStreak(get().sessions),
   getTotalMinutes: () => get().sessions.reduce((acc, s) => acc + s.duration, 0),
 
   updateUser: (data) => {
+    const currentUser = get().user;
+    const hasChanges = Object.keys(data).some(
+      (key) => currentUser[key as keyof UserProfile] !== data[key as keyof UserProfile]
+    );
+    if (!hasChanges) return;
+
     const now = new Date().toISOString();
     set((state) => ({ user: { ...state.user, ...data }, lastChangedAt: now }));
     get().syncToCloud();

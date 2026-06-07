@@ -22,8 +22,7 @@ function App() {
   const isAuthLoading = useStore((s) => s.isAuthLoading);
   const setAuthUser = useStore((s) => s.setAuthUser);
   const setAuthLoading = useStore((s) => s.setAuthLoading);
-  const updateUser = useStore((s) => s.updateUser);
-  const restoreBackup = useStore((s) => s.restoreBackup);
+  const hasHydrated = useStore((s) => s.hasHydrated);
   const loadFromCloud = useStore((s) => s.loadFromCloud);
 
   // Keep a stable ref to loadFromCloud so the realtime channel doesn't recreate itself
@@ -75,13 +74,6 @@ function App() {
           isGuest: false,
         };
         setAuthUser(authUserData);
-        updateUser({ name: authUserData.name });
-
-        // Try quick restore from token metadata, then background-load the full cloud state
-        const backupStr = user.user_metadata?.skillpath_backup as string | undefined;
-        if (backupStr) restoreBackup(backupStr);
-
-        loadFromCloudRef.current();
       }
 
       setAuthLoading(false);
@@ -102,12 +94,6 @@ function App() {
           isGuest: false,
         };
         setAuthUser(authUserData);
-        updateUser({ name: authUserData.name });
-
-        const backupStr = user.user_metadata?.skillpath_backup as string | undefined;
-        if (backupStr) restoreBackup(backupStr);
-
-        loadFromCloudRef.current();
       } else if (event === 'SIGNED_OUT') {
         setAuthUser(null);
       }
@@ -118,6 +104,13 @@ function App() {
     return () => subscription.unsubscribe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Cloud sync only after localStorage rehydration + authenticated session
+  useEffect(() => {
+    if (!hasHydrated || isAuthLoading || !authUser || authUser.isGuest) return;
+    console.log('[SkillPath] Auth + hydration ready — loading cloud backup.');
+    loadFromCloudRef.current();
+  }, [hasHydrated, isAuthLoading, authUser?.id, authUser?.isGuest]);
 
   // Real-time cross-device sync: re-subscribe only when the logged-in user changes
   useEffect(() => {
@@ -130,7 +123,11 @@ function App() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'user_sync', filter: `user_id=eq.${userId}` },
         () => {
-          // Another device pushed an update — pull it in
+          if (useStore.getState().shouldIgnoreRealtimePull()) {
+            console.log('[SkillPath] [Realtime] Ignoring self-echo from local push.');
+            return;
+          }
+          console.log('[SkillPath] [Realtime] Remote user_sync change — pulling cloud backup.');
           loadFromCloudRef.current();
         }
       )
@@ -139,9 +136,9 @@ function App() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [authUser?.id]); // stable: only recreate when user ID changes
+  }, [authUser?.id]);
 
-  if (isAuthLoading) {
+  if (isAuthLoading || !hasHydrated) {
     return (
       <div className="fixed inset-0 bg-background flex items-center justify-center">
         <div className="text-center space-y-4">
