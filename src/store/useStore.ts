@@ -63,11 +63,28 @@ export const useStore = create<AppState>()(
         } else {
           console.log('[SkillPath] localStorage rehydration complete.');
         }
+        // Set hasHydrated inside this callback — it fires reliably whether
+        // hydration was sync or async, avoiding the race condition where
+        // onFinishHydration listeners registered after create() miss the event.
+        useStore.setState({ hasHydrated: true });
       },
     }
   )
 );
 
+// Belt-and-suspenders: also listen via onFinishHydration in case
+// onRehydrateStorage fires before the store reference is ready.
 useStore.persist.onFinishHydration(() => {
-  useStore.setState({ hasHydrated: true });
+  if (!useStore.getState().hasHydrated) {
+    useStore.setState({ hasHydrated: true });
+  }
 });
+
+// Ultimate failsafe — if neither callback fires within 3 seconds,
+// force hydration so the app doesn't hang forever.
+setTimeout(() => {
+  if (!useStore.getState().hasHydrated) {
+    console.warn('[SkillPath] Hydration timeout — forcing hasHydrated = true');
+    useStore.setState({ hasHydrated: true });
+  }
+}, 3000);
