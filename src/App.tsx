@@ -56,52 +56,69 @@ function App() {
 
     setAuthLoading(true);
 
-    // Check for an existing session (e.g. returning user with valid token)
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) {
-        console.error('[SkillPath] getSession error:', error.message);
+    let subscription: { unsubscribe: () => void } | null = null;
+
+    try {
+      // Check for an existing session (e.g. returning user with valid token)
+      supabase.auth.getSession().then(({ data: { session }, error }) => {
+        if (error) {
+          console.error('[SkillPath] getSession error:', error.message);
+          setAuthLoading(false);
+          return;
+        }
+
+        if (session?.user) {
+          const user = session.user;
+          const authUserData: AuthUser = {
+            id: user.id,
+            email: user.email,
+            name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
+            avatar: user.user_metadata?.avatar_url,
+            isGuest: false,
+          };
+          setAuthUser(authUserData);
+        }
+
         setAuthLoading(false);
-        return;
-      }
-
-      if (session?.user) {
-        const user = session.user;
-        const authUserData: AuthUser = {
-          id: user.id,
-          email: user.email,
-          name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
-          avatar: user.user_metadata?.avatar_url,
-          isGuest: false,
-        };
-        setAuthUser(authUserData);
-      }
-
+      }).catch((err: Error) => {
+        console.error('[SkillPath] getSession network error:', err.message);
+        setAuthLoading(false);
+      });
+    } catch (err: any) {
+      console.error('[SkillPath] getSession synchronous error:', err.message || err);
       setAuthLoading(false);
-    }).catch((err: Error) => {
-      console.error('[SkillPath] getSession network error:', err.message);
-      setAuthLoading(false);
-    });
+    }
 
-    // Listen for sign-in / sign-out / token refresh events
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user) {
-        const user = session.user;
-        const authUserData: AuthUser = {
-          id: user.id,
-          email: user.email,
-          name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
-          avatar: user.user_metadata?.avatar_url,
-          isGuest: false,
-        };
-        setAuthUser(authUserData);
-      } else if (event === 'SIGNED_OUT') {
-        setAuthUser(null);
+    try {
+      // Listen for sign-in / sign-out / token refresh events
+      const { data } = supabase.auth.onAuthStateChange((event, session) => {
+        if (session?.user) {
+          const user = session.user;
+          const authUserData: AuthUser = {
+            id: user.id,
+            email: user.email,
+            name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
+            avatar: user.user_metadata?.avatar_url,
+            isGuest: false,
+          };
+          setAuthUser(authUserData);
+        } else if (event === 'SIGNED_OUT') {
+          setAuthUser(null);
+        }
+
+        setAuthLoading(false);
+      });
+      subscription = data?.subscription;
+    } catch (err: any) {
+      console.error('[SkillPath] onAuthStateChange synchronous error:', err.message || err);
+      setAuthLoading(false);
+    }
+
+    return () => {
+      if (subscription) {
+        subscription.unsubscribe();
       }
-
-      setAuthLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
